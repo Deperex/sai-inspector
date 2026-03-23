@@ -1,0 +1,4 @@
+[submodule "libero"]
+	path = libero
+	url = https://github.com/Deperex/LIBERO.git
+	branch = master
