@@ -1,0 +1,22 @@
+[project]
+name = "sai-inspector"
+version = "0.1.0"
+description = "Inspector project with LIBERO and MuJoCo WASM frontend"
+readme = "README.md"
+requires-python = ">=3.10,<3.11"
+dependencies = [
+    "numpy",
+    "pyyaml",
+    "fastapi",
+    "uvicorn",
+]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

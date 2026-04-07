@@ -1,0 +1,19 @@
+{
+  "name": "sai-inspector-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@mujoco/mujoco": "*",
+    "three": "^0.180.0"
+  },
+  "devDependencies": {
+    "sirv": "^3.0.2",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.7"
+  }
+}
