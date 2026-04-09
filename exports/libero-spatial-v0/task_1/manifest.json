@@ -5,6 +5,7 @@
   "instruction": "pick up the black bowl next to the ramekin and place it on the plate",
   "xml": "scene.xml",
   "state": "state.json",
+  "scene": "scene.yaml",
   "cameras": [
     "frontview",
     "birdview",

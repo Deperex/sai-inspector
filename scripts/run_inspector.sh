@@ -21,7 +21,7 @@ fi
 source .venv/bin/activate
 
 echo "==> Exporting env=${ENV_NAME} task=${TASK_ID}"
-python scripts/export_libero_env.py --env "$ENV_NAME" --task-id "$TASK_ID"
+python scripts/export_libero_bundle.py --env "$ENV_NAME" --task-id "$TASK_ID"
 
 echo "==> Open:"
 echo "http://localhost:5173/?env=${ENV_NAME}&task=${TASK_ID}"

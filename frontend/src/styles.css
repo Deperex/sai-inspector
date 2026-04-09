@@ -42,14 +42,62 @@ body,
   box-sizing: border-box;
 }
 
+#exportSelect,
+#cameraSelect,
+#mutableObjectSelect {
+  width: 100%;
+  box-sizing: border-box;
+}
+
 #buttonRow {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
+}
+
+.toggleRow {
+  display: flex;
+  gap: 8px;
+}
+
+.toggleRow button.is-active {
+  background: #101318;
+  color: #f7f7f7;
 }
 
 .meta {
   white-space: pre-wrap;
   font-size: 12px;
+}
+
+.controlsPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.controlGroup label {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.controlRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.controlRow input[type="range"] {
+  flex: 1;
+}
+
+.controlRow input[type="number"] {
+  width: 96px;
+}
+
+.valueBadge {
+  min-width: 56px;
+  text-align: right;
 }
 
 .status-ok {
