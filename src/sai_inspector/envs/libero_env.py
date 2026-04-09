@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
 import mujoco
 import numpy as np
+
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_LIBERO_REPO = _REPO_ROOT / "third_party" / "envs" / "libero"
+if str(_LIBERO_REPO) not in sys.path:
+    sys.path.insert(0, str(_LIBERO_REPO))
 
 from libero.libero.benchmark import get_benchmark_dict
 from libero.libero.envs import OffScreenRenderEnv
@@ -34,6 +40,10 @@ class LiberoExportEnv:
         self.seed_value = seed
         self.init_state_index = init_state_index
         self._env_kwargs = dict(env_kwargs or {})
+        self._last_obs: dict[str, Any] | None = None
+        self._last_reward: float = 0.0
+        self._last_done: bool = False
+        self._last_info: dict[str, Any] = {}
 
         benchmark_ctor = get_benchmark_dict()[benchmark_name]
         self.benchmark = benchmark_ctor(task_order_index=self.task_order_index)
@@ -41,7 +51,7 @@ class LiberoExportEnv:
 
         # Resolve paths relative to THIS repo, not LIBERO's stale internal config.
         repo_root = Path(__file__).resolve().parents[3]
-        libero_root = repo_root / "libero" / "libero" / "libero"
+        libero_root = repo_root / "third_party" / "envs" / "libero" / "libero" / "libero"
 
         bddl_root = libero_root / "bddl_files"
         init_root = libero_root / "init_files"
@@ -77,7 +87,20 @@ class LiberoExportEnv:
         self.reset()
 
     def reset(self):
-        return self._control.reset()
+        obs = self._control.reset()
+        self._last_obs = dict(obs)
+        self._last_reward = 0.0
+        self._last_done = False
+        self._last_info = {}
+        return obs
+
+    def step(self, action: np.ndarray | list[float] | tuple[float, ...]):
+        obs, reward, done, info = self._control.step(np.asarray(action, dtype=np.float32))
+        self._last_obs = dict(obs)
+        self._last_reward = float(reward)
+        self._last_done = bool(done)
+        self._last_info = dict(info)
+        return obs, reward, done, info
 
     @property
     def sim(self):
@@ -94,6 +117,12 @@ class LiberoExportEnv:
     @property
     def instruction(self) -> str:
         return str(self.task.language)
+
+    @property
+    def observation(self) -> dict[str, Any]:
+        if self._last_obs is None:
+            raise RuntimeError("Observation is not initialized. Call reset() first.")
+        return self._last_obs
 
     def list_scene_objects(self) -> list[dict[str, Any]]:
         entries: list[dict[str, Any]] = []

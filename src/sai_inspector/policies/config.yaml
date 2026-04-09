@@ -1,0 +1,10 @@
+policies:
+  xvla:
+    label: X-VLA
+    models:
+      - id: xvla-libero
+        label: X-VLA Libero
+        model_id: 2toINF/X-VLA-Libero
+        processor_id: 2toINF/X-VLA-Libero
+        lora_id: null
+        benchmark: libero

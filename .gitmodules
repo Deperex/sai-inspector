@@ -1,4 +1,7 @@
 [submodule "libero"]
-	path = libero
+	path = third_party/envs/libero
 	url = https://github.com/Deperex/LIBERO.git
 	branch = master
+[submodule "third_party/policies/xvla"]
+	path = third_party/policies/xvla
+	url = https://github.com/2toinf/X-VLA.git

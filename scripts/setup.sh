@@ -4,6 +4,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+echo "==> Initializing git submodules"
+git submodule update --init --recursive
+
 echo "==> Checking uv"
 if ! command -v uv >/dev/null 2>&1; then
   echo "uv is not installed."
@@ -41,7 +44,7 @@ echo "==> Installing Python project"
 uv pip install -e .
 
 echo "==> Installing LIBERO requirements"
-python -m pip install -r ./libero/requirements.txt
+python -m pip install -r ./third_party/envs/libero/requirements.txt
 
 echo "==> Installing torch build"
 python -m pip install \
@@ -51,7 +54,13 @@ python -m pip install \
   --extra-index-url https://download.pytorch.org/whl/cu113
 
 echo "==> Installing LIBERO editable"
-uv pip install -e ./libero
+uv pip install -e ./third_party/envs/libero
+
+if [ -d "./third_party/policies/xvla" ]; then
+  echo "==> XVLA submodule detected at third_party/policies/xvla"
+  echo "==> Installing XVLA requirements"
+  python -m pip install -r ./third_party/policies/xvla/requirements.txt
+fi
 
 echo "==> Installing frontend dependencies"
 cd "$ROOT_DIR/frontend"

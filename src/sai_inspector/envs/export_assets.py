@@ -13,8 +13,8 @@ def _safe_relative_asset_path(src: Path) -> Path:
     src_str = str(src)
 
     # LIBERO assets
-    if "/libero/libero/libero/assets/" in src_str:
-        rel = src_str.split("/libero/libero/libero/assets/", 1)[1]
+    if "/third_party/envs/libero/libero/libero/assets/" in src_str:
+        rel = src_str.split("/third_party/envs/libero/libero/libero/assets/", 1)[1]
         return Path("assets") / rel
 
     # robosuite assets from site-packages

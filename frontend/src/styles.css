@@ -44,12 +44,26 @@ body,
 
 #exportSelect,
 #cameraSelect,
-#mutableObjectSelect {
+#mutableObjectSelect,
+#jointSelect,
+#policyBackendSelect,
+#policyModelSelect,
+#policyHostInput,
+#policyPortInput,
+#policyDeviceInput,
+#rolloutStepsInput,
+#rolloutInstructionInput {
   width: 100%;
   box-sizing: border-box;
 }
 
 #buttonRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+#policyButtonRow {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -74,6 +88,14 @@ body,
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.logPanel {
+  max-height: 160px;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid #d9d9d9;
+  background: #ffffff;
 }
 
 .controlGroup label {

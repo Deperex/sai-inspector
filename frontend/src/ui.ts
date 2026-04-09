@@ -36,12 +36,68 @@ type StartSessionResponse = {
   instruction: string;
   scene: LiveScene;
   state: BackendState;
+  policy?: PolicyConfigResponse | null;
 };
 
 type LiveSession = {
   envName: string;
   taskId: number;
   scene: LiveScene;
+  instruction: string;
+  policy?: PolicyConfigResponse | null;
+};
+
+type PolicyModelEntry = {
+  id: string;
+  label: string;
+  model_id: string;
+  processor_id?: string | null;
+  lora_id?: string | null;
+  benchmark?: string;
+};
+
+type PolicyBackendEntry = {
+  label: string;
+  models: PolicyModelEntry[];
+};
+
+type PolicyCatalogResponse = {
+  policies: Record<string, PolicyBackendEntry>;
+};
+
+type PolicyConfigResponse = {
+  backend: string;
+  model_id?: string | null;
+  host: string;
+  port: number;
+  timeout_s: number;
+  restart_if_needed?: boolean;
+  resolved_model?: PolicyModelEntry;
+};
+
+type PolicyServerStatus = {
+  running: boolean;
+  healthy?: boolean;
+  backend?: string;
+  model_id?: string;
+  host?: string;
+  port?: number;
+  pid?: number;
+  log_path?: string;
+  log_tail?: string;
+  command?: string[];
+};
+
+type RolloutStepResponse = {
+  instruction: string;
+  steps: Array<{
+    action: number[];
+    reward: number;
+    done: boolean;
+    info: Record<string, unknown>;
+  }>;
+  state: BackendState;
+  done: boolean;
 };
 
 type ObjectStateResponse = {
@@ -141,6 +197,55 @@ root.innerHTML = `
       </div>
 
       <div class="block">
+        <label>Rollout Backend</label>
+        <select id="policyBackendSelect"></select>
+      </div>
+
+      <div class="block">
+        <label>Rollout Model</label>
+        <select id="policyModelSelect"></select>
+      </div>
+
+      <div class="block">
+        <label>Policy Host</label>
+        <input id="policyHostInput" value="127.0.0.1" />
+      </div>
+
+      <div class="block">
+        <label>Policy Port</label>
+        <input id="policyPortInput" type="number" value="8001" />
+      </div>
+
+      <div class="block">
+        <label>Device</label>
+        <input id="policyDeviceInput" value="cuda" />
+      </div>
+
+      <div class="block">
+        <label>Rollout Instruction</label>
+        <textarea id="rolloutInstructionInput" rows="4"></textarea>
+      </div>
+
+      <div class="block">
+        <label>Rollout Step Size</label>
+        <input id="rolloutStepsInput" type="number" min="1" max="100" value="1" />
+      </div>
+
+      <div class="block">
+        <label>Policy Server</label>
+        <div id="policyServerStatus" class="meta">Not started.</div>
+      </div>
+
+      <div class="block">
+        <div id="policyButtonRow"></div>
+      </div>
+
+      <div class="block">
+        <label>Policy Logs</label>
+        <div id="policyLogs" class="meta logPanel">-</div>
+      </div>
+
+      <div class="block">
         <label>Manifest</label>
         <div id="meta" class="meta">-</div>
       </div>
@@ -162,6 +267,16 @@ const setupControls = root.querySelector<HTMLDivElement>("#setupControls");
 const modeRow = root.querySelector<HTMLDivElement>("#modeRow");
 const viewerEl = root.querySelector<HTMLDivElement>("#viewer");
 const buttonRow = root.querySelector<HTMLDivElement>("#buttonRow");
+const policyBackendSelect = root.querySelector<HTMLSelectElement>("#policyBackendSelect");
+const policyModelSelect = root.querySelector<HTMLSelectElement>("#policyModelSelect");
+const policyHostInput = root.querySelector<HTMLInputElement>("#policyHostInput");
+const policyPortInput = root.querySelector<HTMLInputElement>("#policyPortInput");
+const policyDeviceInput = root.querySelector<HTMLInputElement>("#policyDeviceInput");
+const rolloutInstructionInput = root.querySelector<HTMLTextAreaElement>("#rolloutInstructionInput");
+const rolloutStepsInput = root.querySelector<HTMLInputElement>("#rolloutStepsInput");
+const policyServerStatus = root.querySelector<HTMLDivElement>("#policyServerStatus");
+const policyLogs = root.querySelector<HTMLDivElement>("#policyLogs");
+const policyButtonRow = root.querySelector<HTMLDivElement>("#policyButtonRow");
 
 if (
   !manifestInput ||
@@ -175,7 +290,17 @@ if (
   !setupControls ||
   !modeRow ||
   !viewerEl ||
-  !buttonRow
+  !buttonRow ||
+  !policyBackendSelect ||
+  !policyModelSelect ||
+  !policyHostInput ||
+  !policyPortInput ||
+  !policyDeviceInput ||
+  !rolloutInstructionInput ||
+  !rolloutStepsInput ||
+  !policyServerStatus ||
+  !policyLogs ||
+  !policyButtonRow
 ) {
   throw new Error("Failed to find required UI elements");
 }
@@ -192,6 +317,16 @@ const setupControlsEl = setupControls;
 const modeRowEl = modeRow;
 const viewerElEl = viewerEl;
 const buttonRowEl = buttonRow;
+const policyBackendSelectEl = policyBackendSelect;
+const policyModelSelectEl = policyModelSelect;
+const policyHostInputEl = policyHostInput;
+const policyPortInputEl = policyPortInput;
+const policyDeviceInputEl = policyDeviceInput;
+const rolloutInstructionInputEl = rolloutInstructionInput;
+const rolloutStepsInputEl = rolloutStepsInput;
+const policyServerStatusEl = policyServerStatus;
+const policyLogsEl = policyLogs;
+const policyButtonRowEl = policyButtonRow;
 
 manifestInputEl.value = getManifestUrlFromLocation();
 
@@ -202,9 +337,23 @@ const pauseBtn = makeButton("Pause");
 const resetBtn = makeButton("Reset");
 const inspectModeBtn = makeButton("Inspect");
 const setupModeBtn = makeButton("Setup");
+const startPolicyServerBtn = makeButton("Start XVLA");
+const stopPolicyServerBtn = makeButton("Stop XVLA");
+const attachPolicyBtn = makeButton("Attach Policy");
+const rolloutStepBtn = makeButton("Policy Step");
+const rolloutRunBtn = makeButton("Run Rollout");
+const rolloutStopBtn = makeButton("Stop Rollout");
 
 buttonRowEl.append(loadBtn, refreshBtn, playBtn, pauseBtn, resetBtn);
 modeRowEl.append(inspectModeBtn, setupModeBtn);
+policyButtonRowEl.append(
+  startPolicyServerBtn,
+  stopPolicyServerBtn,
+  attachPolicyBtn,
+  rolloutStepBtn,
+  rolloutRunBtn,
+  rolloutStopBtn,
+);
 
 const viewer = new MujocoDebugViewer(viewerElEl);
 
@@ -220,6 +369,10 @@ let objectStateCache: ObjectStateResponse | null = null;
 const pressedKeys = new Set<string>();
 let setupTickHandle = 0;
 let setupMutationInFlight = false;
+let policyCatalog: Record<string, PolicyBackendEntry> = {};
+let policyServerPollHandle = 0;
+let rolloutRunning = false;
+let rolloutRequestInFlight = false;
 
 function setStatus(text: string, kind: "ok" | "warn" | "err" = "warn") {
   statusElEl.textContent = text;
@@ -239,7 +392,7 @@ function fillManifestInfo() {
 
   instructionElEl.textContent = loaded.manifest.instruction;
   const liveText = liveSession
-    ? `live: connected\nmutable objects: ${liveSession.scene.mutable_objects.length}`
+    ? `live: connected\nmutable objects: ${liveSession.scene.mutable_objects.length}\npolicy: ${liveSession.policy?.backend ?? "none"}`
     : "live: disconnected";
 
   metaElEl.textContent =
@@ -261,6 +414,73 @@ function fillManifestInfo() {
   fillMutableObjectOptions();
   fillJointOptions();
   renderSetupControls();
+}
+
+function selectedPolicyBackend(): string {
+  return policyBackendSelectEl.value || "xvla";
+}
+
+function selectedPolicyModelId(): string | null {
+  return policyModelSelectEl.value || null;
+}
+
+function selectedRolloutInstruction(): string {
+  const value = rolloutInstructionInputEl.value.trim();
+  return value || liveSession?.instruction || loaded?.manifest.instruction || "";
+}
+
+function selectedRolloutStepCount(): number {
+  const parsed = Number.parseInt(rolloutStepsInputEl.value, 10);
+  return Number.isFinite(parsed) ? Math.min(Math.max(parsed, 1), 100) : 1;
+}
+
+function updatePolicyServerUi(status: PolicyServerStatus | null) {
+  if (!status || !status.running) {
+    policyServerStatusEl.textContent = "Not started.";
+    policyLogsEl.textContent = "-";
+    return;
+  }
+
+  const health = status.healthy ? "healthy" : "starting";
+  policyServerStatusEl.textContent =
+    `backend: ${status.backend ?? "-"}\n` +
+    `model: ${status.model_id ?? "-"}\n` +
+    `address: ${status.host ?? "-"}:${status.port ?? "-"}\n` +
+    `pid: ${status.pid ?? "-"}\n` +
+    `status: ${health}`;
+  policyLogsEl.textContent = status.log_tail?.trim() || "(no logs yet)";
+}
+
+function fillPolicyBackendOptions() {
+  policyBackendSelectEl.innerHTML = "";
+  for (const [backend, entry] of Object.entries(policyCatalog)) {
+    const opt = document.createElement("option");
+    opt.value = backend;
+    opt.textContent = entry.label || backend;
+    policyBackendSelectEl.appendChild(opt);
+  }
+  if (!policyBackendSelectEl.value && policyBackendSelectEl.options.length > 0) {
+    policyBackendSelectEl.value = policyBackendSelectEl.options[0].value;
+  }
+  fillPolicyModelOptions();
+}
+
+function fillPolicyModelOptions() {
+  const backend = selectedPolicyBackend();
+  const models = policyCatalog[backend]?.models ?? [];
+  const previous = policyModelSelectEl.value;
+  policyModelSelectEl.innerHTML = "";
+  for (const model of models) {
+    const opt = document.createElement("option");
+    opt.value = model.id;
+    opt.textContent = model.label || model.id;
+    policyModelSelectEl.appendChild(opt);
+  }
+  if (models.some((model) => model.id === previous)) {
+    policyModelSelectEl.value = previous;
+  } else if (models.length > 0) {
+    policyModelSelectEl.value = models[0].id;
+  }
 }
 
 function applySelectedCamera() {
@@ -304,9 +524,12 @@ async function loadCurrentBundle() {
       envName: live.env_name,
       taskId: live.task_id,
       scene: live.scene,
+      instruction: live.instruction,
+      policy: live.policy ?? null,
     };
     await viewer.setLoadedScene(loaded);
     applySimState(live.state);
+    rolloutInstructionInputEl.value = live.instruction;
     fillManifestInfo();
     await loadSelectedObjectState();
     applySelectedCamera();
@@ -406,6 +629,134 @@ async function refreshExports() {
   fillExportOptions();
 }
 
+async function refreshPolicyCatalog() {
+  const response = await fetch("/api/policies/catalog");
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(`Failed to fetch policy catalog: ${response.status} ${message}`);
+  }
+  const payload = (await response.json()) as PolicyCatalogResponse;
+  policyCatalog = payload.policies;
+  fillPolicyBackendOptions();
+}
+
+async function fetchPolicyServerStatus(): Promise<PolicyServerStatus> {
+  const response = await fetch("/api/policy/server");
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(`Failed to fetch policy server status: ${response.status} ${message}`);
+  }
+  return (await response.json()) as PolicyServerStatus;
+}
+
+async function refreshPolicyServerStatus() {
+  try {
+    const status = await fetchPolicyServerStatus();
+    updatePolicyServerUi(status);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    updatePolicyServerUi(null);
+    policyLogsEl.textContent = msg;
+  }
+}
+
+async function startPolicyServer() {
+  const response = await fetch("/api/policy/server/start", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      backend: selectedPolicyBackend(),
+      model_id: selectedPolicyModelId(),
+      host: policyHostInputEl.value.trim() || "127.0.0.1",
+      port: Number.parseInt(policyPortInputEl.value, 10) || 8001,
+      device: policyDeviceInputEl.value.trim() || "cuda",
+    }),
+  });
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(`Failed to start policy server: ${response.status} ${message}`);
+  }
+  await refreshPolicyServerStatus();
+}
+
+async function stopPolicyServer() {
+  const response = await fetch("/api/policy/server/stop", {
+    method: "POST",
+  });
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(`Failed to stop policy server: ${response.status} ${message}`);
+  }
+  await refreshPolicyServerStatus();
+}
+
+async function fetchLiveScene(): Promise<LiveScene> {
+  const response = await fetch("/api/session/scene");
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(`Failed to fetch live scene: ${response.status} ${message}`);
+  }
+  return (await response.json()) as LiveScene;
+}
+
+async function fetchLiveState(): Promise<BackendState> {
+  const response = await fetch("/api/session/state");
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(`Failed to fetch live state: ${response.status} ${message}`);
+  }
+  return (await response.json()) as BackendState;
+}
+
+async function attachPolicy() {
+  if (!loaded || !liveSession) {
+    throw new Error("Load an env before attaching a policy.");
+  }
+  const response = await fetch("/api/policy/configure", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      backend: selectedPolicyBackend(),
+      model_id: selectedPolicyModelId(),
+      host: policyHostInputEl.value.trim() || "127.0.0.1",
+      port: Number.parseInt(policyPortInputEl.value, 10) || 8001,
+      timeout_s: 30,
+      restart_if_needed: true,
+    }),
+  });
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(`Failed to attach policy: ${response.status} ${message}`);
+  }
+  const payload = (await response.json()) as { policy: PolicyConfigResponse | null };
+  const [scene, state] = await Promise.all([fetchLiveScene(), fetchLiveState()]);
+  liveSession = {
+    ...liveSession,
+    scene,
+    instruction: selectedRolloutInstruction() || liveSession.instruction,
+    policy: payload.policy,
+  };
+  applySimState(state);
+  fillManifestInfo();
+  await loadSelectedObjectState();
+}
+
+async function rolloutStep(): Promise<RolloutStepResponse> {
+  const response = await fetch("/api/rollout/step", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      instruction: selectedRolloutInstruction(),
+      num_steps: selectedRolloutStepCount(),
+    }),
+  });
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(`Failed to run rollout step: ${response.status} ${message}`);
+  }
+  return (await response.json()) as RolloutStepResponse;
+}
+
 async function fetchObjectState(objectName: string): Promise<ObjectStateResponse> {
   const response = await fetch(`/api/mutable/object/${encodeURIComponent(objectName)}`);
   if (!response.ok) {
@@ -489,6 +840,49 @@ function applySimState(state: BackendState) {
 
   loaded.mujoco.mj_forward(loaded.model, loaded.data);
   viewer.syncFromPhysics();
+}
+
+async function runPolicyStep() {
+  if (!loaded || !liveSession) {
+    throw new Error("Load an env before running rollout.");
+  }
+  if (rolloutRequestInFlight) {
+    return;
+  }
+  rolloutRequestInFlight = true;
+  try {
+    const payload = await rolloutStep();
+    applySimState(payload.state);
+    await loadSelectedObjectState();
+    const rewards = payload.steps.map((step) => step.reward.toFixed(3)).join(", ");
+    setStatus(payload.done ? `Rollout finished (${rewards})` : `Rollout stepped (${rewards})`, payload.done ? "warn" : "ok");
+  } finally {
+    rolloutRequestInFlight = false;
+  }
+}
+
+async function runRolloutLoop() {
+  if (rolloutRunning) {
+    return;
+  }
+  rolloutRunning = true;
+  setStatus("Policy rollout running", "ok");
+  while (rolloutRunning) {
+    try {
+      const payload = await rolloutStep();
+      applySimState(payload.state);
+      await loadSelectedObjectState();
+      if (payload.done) {
+        rolloutRunning = false;
+        setStatus("Policy rollout finished", "warn");
+        break;
+      }
+    } catch (err) {
+      rolloutRunning = false;
+      throw err;
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 50));
+  }
 }
 
 function resetState() {
@@ -746,12 +1140,85 @@ resetBtn.onclick = () => {
   })();
 };
 
+startPolicyServerBtn.onclick = () => {
+  void (async () => {
+    try {
+      await startPolicyServer();
+      setStatus("Started XVLA server", "ok");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setStatus(msg, "err");
+      console.error(err);
+      await refreshPolicyServerStatus();
+    }
+  })();
+};
+
+stopPolicyServerBtn.onclick = () => {
+  void (async () => {
+    try {
+      await stopPolicyServer();
+      setStatus("Stopped XVLA server", "warn");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setStatus(msg, "err");
+      console.error(err);
+    }
+  })();
+};
+
+attachPolicyBtn.onclick = () => {
+  void (async () => {
+    try {
+      await attachPolicy();
+      setStatus("Attached policy to live session", "ok");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setStatus(msg, "err");
+      console.error(err);
+    }
+  })();
+};
+
+rolloutStepBtn.onclick = () => {
+  void (async () => {
+    try {
+      await runPolicyStep();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setStatus(msg, "err");
+      console.error(err);
+    }
+  })();
+};
+
+rolloutRunBtn.onclick = () => {
+  void (async () => {
+    try {
+      await runRolloutLoop();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setStatus(msg, "err");
+      console.error(err);
+    }
+  })();
+};
+
+rolloutStopBtn.onclick = () => {
+  rolloutRunning = false;
+  setStatus("Policy rollout stopped", "warn");
+};
+
 cameraSelectEl.onchange = () => {
   applySelectedCamera();
 };
 
 exportSelectEl.onchange = () => {
   manifestInputEl.value = exportSelectEl.value;
+};
+
+policyBackendSelectEl.onchange = () => {
+  fillPolicyModelOptions();
 };
 
 mutableObjectSelectEl.onchange = () => {
@@ -799,6 +1266,8 @@ setupTickHandle = window.setInterval(setupTick, 80);
 void (async () => {
   try {
     await refreshExports();
+    await refreshPolicyCatalog();
+    await refreshPolicyServerStatus();
     setMode("inspect");
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -806,3 +1275,7 @@ void (async () => {
     console.error(err);
   }
 })();
+
+policyServerPollHandle = window.setInterval(() => {
+  void refreshPolicyServerStatus();
+}, 2000);
