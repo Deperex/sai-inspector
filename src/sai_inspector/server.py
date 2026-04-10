@@ -694,7 +694,7 @@ def rollout_step(req: RolloutStepRequest) -> dict[str, Any]:
         "instruction": instruction,
         "steps": steps,
         "state": snapshot_state(session.env),
-        "done": done,
+        "done": bool(done),
     }
 
 
