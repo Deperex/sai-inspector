@@ -211,6 +211,27 @@ class PolicyServerManager:
         self._lock = Lock()
         self._server: ManagedPolicyServer | None = None
 
+    @staticmethod
+    def _is_listening(host: str, port: int, timeout_s: float = 0.25) -> bool:
+        try:
+            with socket.create_connection((host, port), timeout=timeout_s):
+                return True
+        except OSError:
+            return False
+
+    @staticmethod
+    def _read_log_tail(log_path: Path, max_bytes: int = 8192) -> str:
+        try:
+            if not log_path.exists():
+                return ""
+            with open(log_path, "rb") as f:
+                f.seek(0, os.SEEK_END)
+                size = f.tell()
+                f.seek(max(0, size - max_bytes), os.SEEK_SET)
+                return f.read().decode("utf-8", errors="replace").strip()
+        except OSError:
+            return ""
+
     def get(self) -> ManagedPolicyServer | None:
         with self._lock:
             server = self._server
@@ -310,6 +331,31 @@ class PolicyServerManager:
             server.pid,
             server.backend,
             server.model_id,
+            server.port,
+            server.log_path,
+        )
+        deadline = time.time() + 20.0
+        while time.time() < deadline:
+            exit_code = process.poll()
+            if exit_code is not None:
+                with self._lock:
+                    if self._server is server:
+                        self._server = None
+                log_tail = self._read_log_tail(log_path)
+                detail = (
+                    f"Managed policy server exited with code {exit_code}. "
+                    f"log_path={log_path}"
+                )
+                if log_tail:
+                    detail += f"\n\nRecent log output:\n{log_tail}"
+                raise HTTPException(status_code=500, detail=detail)
+            if self._is_listening(host, port):
+                return server
+            time.sleep(0.25)
+
+        logger.warning(
+            "Managed policy server did not become healthy before timeout: pid=%s port=%s log=%s",
+            server.pid,
             server.port,
             server.log_path,
         )
