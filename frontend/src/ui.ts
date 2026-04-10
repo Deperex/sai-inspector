@@ -350,8 +350,6 @@ manifestInputEl.value = getManifestUrlFromLocation();
 
 const loadBtn = makeButton("Load env");
 const refreshBtn = makeButton("Refresh exports");
-const playBtn = makeButton("Play");
-const pauseBtn = makeButton("Pause");
 const resetBtn = makeButton("Reset");
 const inspectModeBtn = makeButton("Inspect");
 const setupModeBtn = makeButton("Setup");
@@ -362,7 +360,7 @@ const rolloutStepBtn = makeButton("Policy Step");
 const rolloutRunBtn = makeButton("Run Rollout");
 const rolloutStopBtn = makeButton("Stop Rollout");
 
-buttonRowEl.append(loadBtn, refreshBtn, playBtn, pauseBtn, resetBtn);
+buttonRowEl.append(loadBtn, refreshBtn, resetBtn);
 modeRowEl.append(inspectModeBtn, setupModeBtn);
 policyButtonRowEl.append(
   startPolicyServerBtn,
@@ -377,7 +375,6 @@ const viewer = new MujocoDebugViewer(viewerElEl);
 
 let loaded: LoadedBundle | null = null;
 let liveSession: LiveSession | null = null;
-let running = false;
 let raf = 0;
 let exportEntries: ExportIndexEntry[] = [];
 let currentMode: "inspect" | "setup" = "inspect";
@@ -508,7 +505,6 @@ function applySelectedCamera() {
 }
 
 function stopLoop() {
-  running = false;
   if (raf) {
     cancelAnimationFrame(raf);
     raf = 0;
@@ -518,11 +514,6 @@ function stopLoop() {
 function frame() {
   if (!loaded) {
     return;
-  }
-
-  if (running) {
-    loaded.mujoco.mj_step(loaded.model, loaded.data);
-    viewer.syncFromPhysics();
   }
 
   viewer.render();
@@ -551,7 +542,6 @@ async function loadCurrentBundle() {
     await loadSelectedObjectState();
     applySelectedCamera();
     setStatus("Env loaded and synced with live backend", "ok");
-    running = false;
     frame();
   } catch (err) {
     liveSession = null;
@@ -992,11 +982,6 @@ async function runRolloutLoop() {
   }
 }
 
-function resetState() {
-  if (!loaded) return;
-  applySimState(loaded.state as BackendState);
-}
-
 function setMode(mode: "inspect" | "setup") {
   currentMode = mode;
   inspectModeBtn.classList.toggle("is-active", mode === "inspect");
@@ -1214,34 +1199,16 @@ setupModeBtn.onclick = () => {
   setMode("setup");
 };
 
-playBtn.onclick = () => {
-  if (!loaded) {
-    return;
-  }
-  running = true;
-  setStatus("Running", "ok");
-};
-
-pauseBtn.onclick = () => {
-  running = false;
-  setStatus("Paused", "warn");
-};
-
 resetBtn.onclick = () => {
-  if (!loaded) {
+  if (!liveSession) {
     return;
   }
   void (async () => {
     try {
-      if (liveSession) {
-        const state = await resetLiveSession();
-        applySimState(state);
-        await loadSelectedObjectState();
-        setStatus("Reset to live backend state", "ok");
-      } else {
-        resetState();
-        setStatus("Reset to exported state", "ok");
-      }
+      const state = await resetLiveSession();
+      applySimState(state);
+      await loadSelectedObjectState();
+      setStatus("Reset to LIBERO initial state", "ok");
       applySelectedCamera();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
