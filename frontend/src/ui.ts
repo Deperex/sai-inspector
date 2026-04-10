@@ -6,6 +6,10 @@ type BackendState = {
   qvel: number[];
 };
 
+type QposState = {
+  qpos: number[];
+};
+
 type LiveScene = {
   env_name: string;
   benchmark_name: string;
@@ -84,7 +88,6 @@ type PolicyServerStatus = {
   port?: number;
   pid?: number;
   log_path?: string;
-  log_tail?: string;
   command?: string[];
 };
 
@@ -94,11 +97,34 @@ type RolloutStepResponse = {
     action: number[];
     reward: number;
     done: boolean;
-    info: Record<string, unknown>;
   }>;
   state: BackendState;
   done: boolean;
 };
+
+type RolloutStreamEvent =
+  | {
+      type: "step";
+      index: number;
+      instruction: string;
+      step: {
+        reward: number;
+        done: boolean;
+      };
+      state: QposState;
+      done: boolean;
+    }
+  | {
+      type: "done";
+      instruction: string;
+      steps_sent: number;
+      done: boolean;
+      state: QposState;
+    }
+  | {
+      type: "error";
+      error: string;
+    };
 
 type ObjectStateResponse = {
   name: string;
@@ -241,11 +267,6 @@ root.innerHTML = `
       </div>
 
       <div class="block">
-        <label>Policy Logs</label>
-        <div id="policyLogs" class="meta logPanel">-</div>
-      </div>
-
-      <div class="block">
         <label>Manifest</label>
         <div id="meta" class="meta">-</div>
       </div>
@@ -275,7 +296,6 @@ const policyDeviceInput = root.querySelector<HTMLInputElement>("#policyDeviceInp
 const rolloutInstructionInput = root.querySelector<HTMLTextAreaElement>("#rolloutInstructionInput");
 const rolloutStepsInput = root.querySelector<HTMLInputElement>("#rolloutStepsInput");
 const policyServerStatus = root.querySelector<HTMLDivElement>("#policyServerStatus");
-const policyLogs = root.querySelector<HTMLDivElement>("#policyLogs");
 const policyButtonRow = root.querySelector<HTMLDivElement>("#policyButtonRow");
 
 if (
@@ -299,7 +319,6 @@ if (
   !rolloutInstructionInput ||
   !rolloutStepsInput ||
   !policyServerStatus ||
-  !policyLogs ||
   !policyButtonRow
 ) {
   throw new Error("Failed to find required UI elements");
@@ -325,7 +344,6 @@ const policyDeviceInputEl = policyDeviceInput;
 const rolloutInstructionInputEl = rolloutInstructionInput;
 const rolloutStepsInputEl = rolloutStepsInput;
 const policyServerStatusEl = policyServerStatus;
-const policyLogsEl = policyLogs;
 const policyButtonRowEl = policyButtonRow;
 
 manifestInputEl.value = getManifestUrlFromLocation();
@@ -373,6 +391,7 @@ let policyCatalog: Record<string, PolicyBackendEntry> = {};
 let policyServerPollHandle = 0;
 let rolloutRunning = false;
 let rolloutRequestInFlight = false;
+let rolloutStreamAbort: AbortController | null = null;
 
 function setStatus(text: string, kind: "ok" | "warn" | "err" = "warn") {
   statusElEl.textContent = text;
@@ -437,7 +456,6 @@ function selectedRolloutStepCount(): number {
 function updatePolicyServerUi(status: PolicyServerStatus | null) {
   if (!status || !status.running) {
     policyServerStatusEl.textContent = "Not started.";
-    policyLogsEl.textContent = "-";
     return;
   }
 
@@ -448,7 +466,6 @@ function updatePolicyServerUi(status: PolicyServerStatus | null) {
     `address: ${status.host ?? "-"}:${status.port ?? "-"}\n` +
     `pid: ${status.pid ?? "-"}\n` +
     `status: ${health}`;
-  policyLogsEl.textContent = status.log_tail?.trim() || "(no logs yet)";
 }
 
 function fillPolicyBackendOptions() {
@@ -653,10 +670,8 @@ async function refreshPolicyServerStatus() {
   try {
     const status = await fetchPolicyServerStatus();
     updatePolicyServerUi(status);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+  } catch {
     updatePolicyServerUi(null);
-    policyLogsEl.textContent = msg;
   }
 }
 
@@ -690,22 +705,8 @@ async function stopPolicyServer() {
   await refreshPolicyServerStatus();
 }
 
-async function fetchLiveScene(): Promise<LiveScene> {
-  const response = await fetch("/api/session/scene");
-  if (!response.ok) {
-    const message = await response.text();
-    throw new Error(`Failed to fetch live scene: ${response.status} ${message}`);
-  }
-  return (await response.json()) as LiveScene;
-}
-
-async function fetchLiveState(): Promise<BackendState> {
-  const response = await fetch("/api/session/state");
-  if (!response.ok) {
-    const message = await response.text();
-    throw new Error(`Failed to fetch live state: ${response.status} ${message}`);
-  }
-  return (await response.json()) as BackendState;
+function shouldRefreshSelectedObjectState(): boolean {
+  return currentMode === "setup" && !!selectedMutableObject;
 }
 
 async function attachPolicy() {
@@ -728,17 +729,20 @@ async function attachPolicy() {
     const message = await response.text();
     throw new Error(`Failed to attach policy: ${response.status} ${message}`);
   }
-  const payload = (await response.json()) as { policy: PolicyConfigResponse | null };
-  const [scene, state] = await Promise.all([fetchLiveScene(), fetchLiveState()]);
+  const payload = (await response.json()) as {
+    policy: PolicyConfigResponse | null;
+    state: BackendState;
+  };
   liveSession = {
     ...liveSession,
-    scene,
     instruction: selectedRolloutInstruction() || liveSession.instruction,
     policy: payload.policy,
   };
-  applySimState(state);
+  applySimState(payload.state);
   fillManifestInfo();
-  await loadSelectedObjectState();
+  if (shouldRefreshSelectedObjectState()) {
+    await loadSelectedObjectState();
+  }
 }
 
 async function rolloutStep(): Promise<RolloutStepResponse> {
@@ -766,7 +770,11 @@ async function fetchObjectState(objectName: string): Promise<ObjectStateResponse
   return (await response.json()) as ObjectStateResponse;
 }
 
-async function mutateJoint(objectName: string, jointName: string, value: number): Promise<BackendState> {
+async function mutateJoint(
+  objectName: string,
+  jointName: string,
+  value: number,
+): Promise<{ state: BackendState; objectState: ObjectStateResponse }> {
   const response = await fetch("/api/mutable/joint", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -780,15 +788,21 @@ async function mutateJoint(objectName: string, jointName: string, value: number)
     const message = await response.text();
     throw new Error(`Failed to mutate joint: ${response.status} ${message}`);
   }
-  const payload = (await response.json()) as { state: BackendState };
-  return payload.state;
+  const payload = (await response.json()) as {
+    state: BackendState;
+    object_state: ObjectStateResponse;
+  };
+  return {
+    state: payload.state,
+    objectState: payload.object_state,
+  };
 }
 
 async function mutatePose(
   objectName: string,
   pos: number[],
   quat: number[],
-): Promise<BackendState> {
+): Promise<{ state: BackendState; objectState: ObjectStateResponse }> {
   const response = await fetch("/api/mutable/pose", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -802,8 +816,14 @@ async function mutatePose(
     const message = await response.text();
     throw new Error(`Failed to mutate pose: ${response.status} ${message}`);
   }
-  const payload = (await response.json()) as { state: BackendState };
-  return payload.state;
+  const payload = (await response.json()) as {
+    state: BackendState;
+    object_state: ObjectStateResponse;
+  };
+  return {
+    state: payload.state,
+    objectState: payload.object_state,
+  };
 }
 
 async function loadSelectedObjectState() {
@@ -842,6 +862,22 @@ function applySimState(state: BackendState) {
   viewer.syncFromPhysics();
 }
 
+function applyQposState(state: QposState) {
+  if (!loaded) {
+    return;
+  }
+
+  if (Array.isArray(state.qpos)) {
+    const n = Math.min(state.qpos.length, loaded.data.qpos.length);
+    for (let i = 0; i < n; i++) {
+      loaded.data.qpos[i] = state.qpos[i];
+    }
+  }
+
+  loaded.mujoco.mj_forward(loaded.model, loaded.data);
+  viewer.syncFromPhysics();
+}
+
 async function runPolicyStep() {
   if (!loaded || !liveSession) {
     throw new Error("Load an env before running rollout.");
@@ -853,7 +889,9 @@ async function runPolicyStep() {
   try {
     const payload = await rolloutStep();
     applySimState(payload.state);
-    await loadSelectedObjectState();
+    if (shouldRefreshSelectedObjectState()) {
+      await loadSelectedObjectState();
+    }
     const rewards = payload.steps.map((step) => step.reward.toFixed(3)).join(", ");
     setStatus(payload.done ? `Rollout finished (${rewards})` : `Rollout stepped (${rewards})`, payload.done ? "warn" : "ok");
   } finally {
@@ -866,22 +904,91 @@ async function runRolloutLoop() {
     return;
   }
   rolloutRunning = true;
+  rolloutStreamAbort = new AbortController();
   setStatus("Policy rollout running", "ok");
-  while (rolloutRunning) {
-    try {
-      const payload = await rolloutStep();
-      applySimState(payload.state);
-      await loadSelectedObjectState();
-      if (payload.done) {
-        rolloutRunning = false;
-        setStatus("Policy rollout finished", "warn");
+
+  try {
+    const response = await fetch("/api/rollout/stream", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        instruction: selectedRolloutInstruction(),
+        num_steps: selectedRolloutStepCount(),
+      }),
+      signal: rolloutStreamAbort.signal,
+    });
+
+    if (!response.ok) {
+      const message = await response.text();
+      throw new Error(`Failed to stream rollout: ${response.status} ${message}`);
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new Error("Rollout stream body is unavailable");
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (rolloutRunning) {
+      const chunk = await reader.read();
+      if (chunk.done) {
         break;
       }
-    } catch (err) {
+
+      buffer += decoder.decode(chunk.value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+
+        const event = JSON.parse(trimmed) as RolloutStreamEvent;
+        if (event.type === "error") {
+          throw new Error(event.error);
+        }
+
+        if (event.type === "step") {
+          applyQposState(event.state);
+          setStatus(
+            event.done
+              ? `Policy rollout finished (${event.step.reward.toFixed(3)})`
+              : `Policy rollout step ${event.index + 1} (${event.step.reward.toFixed(3)})`,
+            event.done ? "warn" : "ok"
+          );
+          if (event.done) {
+            rolloutRunning = false;
+            break;
+          }
+        }
+
+        if (event.type === "done") {
+          applyQposState(event.state);
+          rolloutRunning = false;
+          setStatus(
+            event.done
+              ? `Policy rollout finished (${event.steps_sent} steps)`
+              : `Policy rollout stopped (${event.steps_sent} steps)`,
+            "warn"
+          );
+          break;
+        }
+      }
+    }
+  } catch (err) {
+    const aborted = err instanceof DOMException && err.name === "AbortError";
+    if (!aborted) {
       rolloutRunning = false;
       throw err;
     }
-    await new Promise((resolve) => window.setTimeout(resolve, 50));
+  } finally {
+    rolloutRunning = false;
+    rolloutStreamAbort = null;
+    if (shouldRefreshSelectedObjectState()) {
+      await loadSelectedObjectState();
+    }
   }
 }
 
@@ -1005,8 +1112,10 @@ function nudgeSelectedJoint(direction: -1 | 1) {
   setupMutationInFlight = true;
   void (async () => {
     try {
-      const state = await mutateJoint(sceneObject.name, selectedJointName, nextValue);
-      applySimState(state);
+      const payload = await mutateJoint(sceneObject.name, selectedJointName, nextValue);
+      objectStateCache = payload.objectState;
+      applySimState(payload.state);
+      renderSetupControls();
       setStatus(`Updated ${selectedJointName}`, "ok");
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -1045,8 +1154,10 @@ function nudgeSelectedFreeObject() {
   setupMutationInFlight = true;
   void (async () => {
     try {
-      const state = await mutatePose(sceneObject.name, pos, cached.quat);
-      applySimState(state);
+      const payload = await mutatePose(sceneObject.name, pos, cached.quat);
+      objectStateCache = payload.objectState;
+      applySimState(payload.state);
+      renderSetupControls();
       setStatus(`Moved ${sceneObject.name}`, "ok");
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -1206,6 +1317,8 @@ rolloutRunBtn.onclick = () => {
 
 rolloutStopBtn.onclick = () => {
   rolloutRunning = false;
+  rolloutStreamAbort?.abort();
+  rolloutStreamAbort = null;
   setStatus("Policy rollout stopped", "warn");
 };
 

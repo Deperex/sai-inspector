@@ -1,6 +1,7 @@
 envs:
   libero-spatial-v0:
     benchmark_name: libero_spatial
+    camera_names: [agentview, robot0_eye_in_hand]
     task_ids: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
     task_prompts:
       - pick_up_the_black_bowl_between_the_plate_and_the_ramekin_and_place_it_on_the_plate

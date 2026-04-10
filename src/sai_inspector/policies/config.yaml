@@ -1,6 +1,7 @@
 policies:
   xvla:
     label: X-VLA
+    python_executable: .venv-xvla/bin/python
     models:
       - id: xvla-libero
         label: X-VLA Libero

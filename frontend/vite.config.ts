@@ -1,6 +1,6 @@
 import { defineConfig } from "vite";
 import { resolve } from "node:path";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { spawn, type ChildProcess } from "node:child_process";
 import sirv from "sirv";
 
@@ -49,6 +49,21 @@ function collectExportEntries(exportsDir: string): ExportEntry[] {
   return entries;
 }
 
+function resolveBackendPython(repoRoot: string): string {
+  const candidates = [
+    resolve(repoRoot, ".venv-xvla/bin/python"),
+    resolve(repoRoot, ".venv/bin/python"),
+  ];
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return "python3";
+}
+
 export default defineConfig({
   publicDir: "public",
 
@@ -61,7 +76,8 @@ export default defineConfig({
       name: "serve-exports",
       configureServer(server) {
         const exportsDir = resolve(__dirname, "../exports");
-        const backendScript = resolve(__dirname, "../scripts/run_backend.sh");
+        const repoRoot = resolve(__dirname, "..");
+        const backendPython = resolveBackendPython(repoRoot);
         let backendProcess: ChildProcess | null = null;
 
         const stopBackend = () => {
@@ -71,9 +87,24 @@ export default defineConfig({
         };
 
         if (!backendProcess) {
-          backendProcess = spawn("bash", [backendScript], {
-            cwd: resolve(__dirname, ".."),
-            stdio: "inherit",
+          backendProcess = spawn(
+            backendPython,
+            [
+              "-m",
+              "uvicorn",
+              "sai_inspector.server:app",
+              "--host",
+              "0.0.0.0",
+              "--port",
+              "8000",
+            ],
+            {
+              cwd: repoRoot,
+              stdio: "inherit",
+            }
+          );
+          backendProcess.on("error", (err) => {
+            console.error(`[backend] failed to start: ${err}`);
           });
           backendProcess.on("exit", (code, signal) => {
             console.log(`[backend] exited with code=${code} signal=${signal}`);
