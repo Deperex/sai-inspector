@@ -84,7 +84,10 @@ def resolve_policy_python_executable(
             detail=f"Policy backend '{backend}' is missing required python_executable in {config_path}",
         )
 
-    return str(Path(configured).expanduser().resolve())
+    python_path = Path(configured).expanduser()
+    if not python_path.is_absolute():
+        python_path = Path.cwd() / python_path
+    return str(python_path.absolute())
 
 
 def snapshot_state(env: LiberoExportEnv) -> dict[str, Any]:
