@@ -81,6 +81,18 @@ def snapshot_state(env: LiberoExportEnv) -> dict[str, Any]:
     }
 
 
+def to_jsonable(value: Any) -> Any:
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, dict):
+        return {str(k): to_jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [to_jsonable(v) for v in value]
+    return value
+
+
 @dataclass
 class LiveSession:
     env_name: str
@@ -672,7 +684,7 @@ def rollout_step(req: RolloutStepRequest) -> dict[str, Any]:
                 "action": np.asarray(action, dtype=np.float32).tolist(),
                 "reward": float(reward),
                 "done": bool(done),
-                "info": dict(info),
+                "info": to_jsonable(dict(info)),
             }
         )
         if done:

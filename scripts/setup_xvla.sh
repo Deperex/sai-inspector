@@ -32,5 +32,13 @@ python -m pip install --upgrade pip setuptools wheel
 echo "==> Installing XVLA requirements"
 python -m pip install -r "$XVLA_DIR/requirements.txt"
 
+echo "==> Installing CUDA-compatible PyTorch for this VM"
+python -m pip uninstall -y torch torchvision torchaudio || true
+python -m pip install --no-cache-dir --force-reinstall \
+  torch==2.6.0 \
+  torchvision==0.21.0 \
+  torchaudio==2.6.0 \
+  --index-url https://download.pytorch.org/whl/cu124
+
 echo "==> XVLA setup complete"
 echo "Activate XVLA env with: source $ROOT_DIR/.venv-xvla/bin/activate"

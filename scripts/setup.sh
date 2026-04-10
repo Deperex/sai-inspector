@@ -21,6 +21,14 @@ if ! command -v node >/dev/null 2>&1; then
   exit 1
 fi
 
+echo "==> Checking node version"
+NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
+if [ "$NODE_MAJOR" -lt 20 ]; then
+  echo "Node.js 20+ is required. Found: $(node -v)"
+  echo "Install a newer Node.js version, then rerun setup."
+  exit 1
+fi
+
 echo "==> Checking pnpm"
 if ! command -v pnpm >/dev/null 2>&1; then
   echo "pnpm is not installed."
@@ -43,6 +51,9 @@ python -m pip install --upgrade pip setuptools wheel
 echo "==> Installing Python project"
 uv pip install -e .
 
+echo "==> Installing inspector runtime helpers"
+python -m pip install json_numpy
+
 echo "==> Installing LIBERO requirements"
 python -m pip install -r ./third_party/envs/libero/requirements.txt
 
@@ -58,12 +69,12 @@ uv pip install -e ./third_party/envs/libero
 
 if [ -d "./third_party/policies/xvla" ]; then
   echo "==> XVLA submodule detected at third_party/policies/xvla"
-  echo "==> Installing XVLA requirements"
-  python -m pip install -r ./third_party/policies/xvla/requirements.txt
+  echo "==> Skipping XVLA Python dependencies in .venv"
+  echo "==> Use bash ./scripts/setup_xvla.sh to create a separate .venv-xvla"
 fi
 
 echo "==> Installing frontend dependencies"
-cd "$ROOT_DIR/frontend"bash /setup
+cd "$ROOT_DIR/frontend"
 pnpm install
 
 echo "==> Ensuring runtime export directory exists"
@@ -71,4 +82,5 @@ mkdir -p "$ROOT_DIR/exports"
 
 echo "==> Setup complete"
 echo "Activate python env with: source $ROOT_DIR/.venv/bin/activate"
+echo "Set up XVLA separately with: bash $ROOT_DIR/scripts/setup_xvla.sh"
 echo "Run inspector with: bash $ROOT_DIR/scripts/run_inspector.sh libero-spatial-v0 0"
