@@ -95,7 +95,6 @@ class LiberoExportEnv:
         obs = self._control.reset()
         obs = self._apply_init_state(obs)
         self._configure_absolute_control()
-        obs = self._settle(obs)
         self._last_obs = dict(obs)
         self._last_reward = 0.0
         self._last_done = False
@@ -315,9 +314,3 @@ class LiberoExportEnv:
         for robot in self.env.robots:
             if hasattr(robot.controller, "use_delta"):
                 robot.controller.use_delta = False
-
-    def _settle(self, obs: dict[str, Any], *, num_steps: int = 10) -> dict[str, Any]:
-        settle_action = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0], dtype=np.float32)
-        for _ in range(num_steps):
-            obs, _, _, _ = self._control.step(settle_action)
-        return obs

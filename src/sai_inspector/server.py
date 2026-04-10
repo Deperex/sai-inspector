@@ -435,7 +435,7 @@ class PolicyServerStartRequest(BaseModel):
 
 class RolloutStepRequest(BaseModel):
     instruction: str | None = None
-    num_steps: int = Field(default=1, ge=1, le=100)
+    num_steps: int = Field(default=1, ge=1)
 
 
 def policy_required_cameras(config: PolicyConfigRequest) -> list[str]:

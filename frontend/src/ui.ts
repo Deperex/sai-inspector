@@ -447,7 +447,7 @@ function selectedRolloutInstruction(): string {
 
 function selectedRolloutStepCount(): number {
   const parsed = Number.parseInt(rolloutStepsInputEl.value, 10);
-  return Number.isFinite(parsed) ? Math.min(Math.max(parsed, 1), 100) : 1;
+  return Number.isFinite(parsed) ? Math.max(parsed, 1) : 1;
 }
 
 function updatePolicyServerUi(status: PolicyServerStatus | null) {
