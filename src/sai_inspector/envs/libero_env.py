@@ -44,10 +44,15 @@ class LiberoExportEnv:
         self._last_reward: float = 0.0
         self._last_done: bool = False
         self._last_info: dict[str, Any] = {}
+        self._init_states: np.ndarray | None = None
 
         benchmark_ctor = get_benchmark_dict()[benchmark_name]
         self.benchmark = benchmark_ctor(task_order_index=self.task_order_index)
         self.task = self.benchmark.get_task(self.task_id)
+        try:
+            self._init_states = self.benchmark.get_task_init_states(self.task_id)
+        except Exception:
+            self._init_states = None
 
         # Resolve paths relative to THIS repo, not LIBERO's stale internal config.
         repo_root = Path(__file__).resolve().parents[3]
@@ -88,6 +93,9 @@ class LiberoExportEnv:
 
     def reset(self):
         obs = self._control.reset()
+        obs = self._apply_init_state(obs)
+        self._configure_absolute_control()
+        obs = self._settle(obs)
         self._last_obs = dict(obs)
         self._last_reward = 0.0
         self._last_done = False
@@ -294,3 +302,22 @@ class LiberoExportEnv:
 
     def _forward(self) -> None:
         self.sim.forward()
+
+    def _apply_init_state(self, obs: dict[str, Any]) -> dict[str, Any]:
+        if self._init_states is None or len(self._init_states) == 0:
+            return obs
+
+        init_state_index = self.init_state_index if self.init_state_index is not None else 0
+        init_state_index = int(init_state_index) % int(self._init_states.shape[0])
+        return self._control.set_init_state(self._init_states[init_state_index])
+
+    def _configure_absolute_control(self) -> None:
+        for robot in self.env.robots:
+            if hasattr(robot.controller, "use_delta"):
+                robot.controller.use_delta = False
+
+    def _settle(self, obs: dict[str, Any], *, num_steps: int = 10) -> dict[str, Any]:
+        settle_action = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0], dtype=np.float32)
+        for _ in range(num_steps):
+            obs, _, _, _ = self._control.step(settle_action)
+        return obs
