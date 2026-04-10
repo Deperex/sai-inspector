@@ -56,6 +56,21 @@ def resolve_policy_model(backend: str, model_id: str | None, config_path: str = 
     raise HTTPException(status_code=404, detail=f"Policy model '{model_id}' not found for backend '{backend}'")
 
 
+def resolve_policy_python_executable(python_executable: str | None = None) -> str:
+    if python_executable:
+        return python_executable
+
+    candidates = [
+        Path(".venv-xvla/bin/python").resolve(),
+        Path(".venv/bin/python").resolve(),
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
+
+    return "python3"
+
+
 def snapshot_state(env: LiberoExportEnv) -> dict[str, Any]:
     return {
         "qpos": [float(x) for x in env.data.qpos],
@@ -195,9 +210,7 @@ class PolicyServerManager:
         if backend != "xvla":
             raise HTTPException(status_code=400, detail=f"Unsupported policy backend '{backend}'")
 
-        python_path = python_executable or str(Path(".venv/bin/python").resolve())
-        if not Path(python_path).exists():
-            python_path = "python3"
+        python_path = resolve_policy_python_executable(python_executable)
 
         xvla_root = Path("third_party/policies/xvla").resolve()
         if not xvla_root.exists():

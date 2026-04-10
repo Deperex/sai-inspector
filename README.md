@@ -6,7 +6,11 @@
 git clone --recurse-submodules https://github.com/Deperex/sai-inspector.git
 cd sai-inspector
 bash scripts/setup.sh
+bash scripts/setup_xvla.sh
 ```
+
+`setup.sh` creates `.venv` for the inspector backend, LIBERO, and frontend dependencies.
+`setup_xvla.sh` creates a separate `.venv-xvla` for the XVLA server so its PyTorch stack does not conflict with LIBERO.
 
 ## Run the inspector
 
