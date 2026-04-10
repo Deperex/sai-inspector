@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import socket
 import subprocess
@@ -17,6 +18,8 @@ from pydantic import BaseModel, Field
 from sai_inspector.envs.libero_env import LiberoExportEnv
 from sai_inspector.envs.scene_metadata import build_scene_metadata
 from sai_inspector.policies.xvla import XVLAClient, XVLAPolicyAdapter
+
+logger = logging.getLogger("sai_inspector.server")
 
 
 def load_env_config(env_name: str, registry_path: str) -> dict[str, Any]:
@@ -109,6 +112,22 @@ class ManagedPolicyServer:
     process: subprocess.Popen[Any]
 
 
+@dataclass
+class PolicyServerFailure:
+    backend: str
+    model_id: str
+    host: str
+    port: int
+    pid: int
+    exit_code: int | None
+    signal: int | None
+    log_path: str
+    output_dir: str
+    command: list[str]
+    log_tail: str
+    failed_at: float
+
+
 class SessionManager:
     def __init__(self) -> None:
         self._lock = Lock()
@@ -183,15 +202,62 @@ class PolicyServerManager:
     def __init__(self) -> None:
         self._lock = Lock()
         self._server: ManagedPolicyServer | None = None
+        self._last_failure: PolicyServerFailure | None = None
 
     def get(self) -> ManagedPolicyServer | None:
         with self._lock:
             server = self._server
         if server is not None and server.process.poll() is not None:
+            self._record_failure(server)
             with self._lock:
                 self._server = None
             return None
         return server
+
+    def last_failure(self) -> PolicyServerFailure | None:
+        with self._lock:
+            return self._last_failure
+
+    def _read_log_tail(self, log_path: str) -> str:
+        try:
+            return Path(log_path).read_text(encoding="utf-8", errors="replace")[-4000:]
+        except FileNotFoundError:
+            return ""
+
+    def _record_failure(self, server: ManagedPolicyServer) -> None:
+        returncode = server.process.poll()
+        if returncode is None:
+            return
+
+        exit_code = returncode if returncode >= 0 else None
+        signal = -returncode if returncode < 0 else None
+        failure = PolicyServerFailure(
+            backend=server.backend,
+            model_id=server.model_id,
+            host=server.host,
+            port=server.port,
+            pid=server.pid,
+            exit_code=exit_code,
+            signal=signal,
+            log_path=server.log_path,
+            output_dir=server.output_dir,
+            command=server.command,
+            log_tail=self._read_log_tail(server.log_path),
+            failed_at=time.time(),
+        )
+        logger.error(
+            "Managed policy server exited: backend=%s model=%s pid=%s exit_code=%s signal=%s log=%s",
+            failure.backend,
+            failure.model_id,
+            failure.pid,
+            failure.exit_code,
+            failure.signal,
+            failure.log_path,
+        )
+        if failure.log_tail:
+            logger.error("Managed policy server log tail:\n%s", failure.log_tail)
+        with self._lock:
+            self._last_failure = failure
 
     def start(
         self,
@@ -211,6 +277,15 @@ class PolicyServerManager:
             raise HTTPException(status_code=400, detail=f"Unsupported policy backend '{backend}'")
 
         python_path = resolve_policy_python_executable(python_executable)
+        logger.info(
+            "Starting managed policy server: backend=%s model=%s host=%s port=%s device=%s python=%s",
+            backend,
+            model["id"],
+            host,
+            port,
+            device,
+            python_path,
+        )
 
         xvla_root = Path("third_party/policies/xvla").resolve()
         if not xvla_root.exists():
@@ -266,6 +341,15 @@ class PolicyServerManager:
         )
         with self._lock:
             self._server = server
+            self._last_failure = None
+        logger.info(
+            "Managed policy server launched: pid=%s backend=%s model=%s port=%s log=%s",
+            server.pid,
+            server.backend,
+            server.model_id,
+            server.port,
+            server.log_path,
+        )
         return server
 
     def stop(self) -> dict[str, Any]:
@@ -273,6 +357,12 @@ class PolicyServerManager:
         if server is None:
             return {"running": False}
 
+        logger.info(
+            "Stopping managed policy server: pid=%s backend=%s model=%s",
+            server.pid,
+            server.backend,
+            server.model_id,
+        )
         server.process.terminate()
         try:
             server.process.wait(timeout=10)
@@ -480,7 +570,26 @@ def get_policy() -> dict[str, Any]:
 def get_policy_server() -> dict[str, Any]:
     server = policy_servers.get()
     if server is None:
-        return {"running": False}
+        failure = policy_servers.last_failure()
+        if failure is None:
+            return {"running": False}
+        return {
+            "running": False,
+            "last_failure": {
+                "backend": failure.backend,
+                "model_id": failure.model_id,
+                "host": failure.host,
+                "port": failure.port,
+                "pid": failure.pid,
+                "exit_code": failure.exit_code,
+                "signal": failure.signal,
+                "log_path": failure.log_path,
+                "output_dir": failure.output_dir,
+                "command": failure.command,
+                "log_tail": failure.log_tail,
+                "failed_at": failure.failed_at,
+            },
+        }
 
     healthy = False
     try:
@@ -512,6 +621,14 @@ def get_policy_server() -> dict[str, Any]:
 @app.post("/api/policy/server/start")
 def start_policy_server(req: PolicyServerStartRequest) -> dict[str, Any]:
     model = resolve_policy_model(req.backend, req.model_id)
+    logger.info(
+        "API request start_policy_server: backend=%s model=%s host=%s port=%s device=%s",
+        req.backend,
+        model["id"],
+        req.host,
+        req.port,
+        req.device,
+    )
     server = policy_servers.start(
         backend=req.backend,
         model=model,
