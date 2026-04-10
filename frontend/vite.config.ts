@@ -51,8 +51,8 @@ function collectExportEntries(exportsDir: string): ExportEntry[] {
 
 function resolveBackendPython(repoRoot: string): string {
   const candidates = [
-    resolve(repoRoot, ".venv-xvla/bin/python"),
     resolve(repoRoot, ".venv/bin/python"),
+    resolve(repoRoot, ".venv-xvla/bin/python"),
   ];
 
   for (const candidate of candidates) {
