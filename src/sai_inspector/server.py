@@ -64,12 +64,12 @@ def resolve_policy_python_executable(python_executable: str | None = None) -> st
         return python_executable
 
     candidates = [
-        Path(".venv-xvla/bin/python").resolve(),
-        Path(".venv/bin/python").resolve(),
+        Path(".venv-xvla/bin/python"),
+        Path(".venv/bin/python"),
     ]
     for candidate in candidates:
         if candidate.exists():
-            return str(candidate)
+            return str(candidate.absolute())
 
     return "python3"
 
